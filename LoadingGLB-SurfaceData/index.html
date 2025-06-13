@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>three.js webgpu - compute fluid particles</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <!-- <link type="text/css" rel="stylesheet" href="main.css"> -->
+</head>
+
+<body>
+
+  <div id="info">
+    <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> webgpu - fluid particles<br />
+    MLS-MPM particle simulation running in compute shaders
+  </div>
+
+  <script type="importmap">
+			{
+				"imports": {
+					"three": "../build/three.webgpu.js",
+					"three/webgpu": "../build/three.webgpu.js",
+					"three/tsl": "../build/three.tsl.js",
+					"three/addons/": "./jsm/"
+				}
+			}
+		</script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+    import { MeshSurfaceSampler } from 'three/examples/jsm/math/MeshSurfaceSampler.js';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+    let scene, camera, renderer, particles;
+    let particleCount = 20000;
+    let sampledPositions = [];
+    let particlePositions;
+    let model, surfaceSampler, controls;
+
+    
+
+
+    init();
+
+    function init() {
+      // Setup scene
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+      camera.position.set(0, 1, 5);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambient);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+      dirLight.position.set(5, 5, 5);
+      scene.add(dirLight);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; // smooth motion
+controls.dampingFactor = 0.05;
+controls.minDistance = 1;
+controls.maxDistance = 20;
+controls.enablePan = false; // optional
+
+      // Load GLB model
+      const loader = new GLTFLoader();
+      loader.load('./Data/Xlogo.glb', (gltf) => {
+        model = gltf.scene;
+        model.traverse((child) => {
+          if (child.isMesh) {
+            child.material.side = THREE.DoubleSide; // For visibility
+          }
+        });
+        model.scale.set(1, 1, 1);
+        scene.add(model);
+
+        setupSurfaceSampler(model);
+        createParticles();
+        animate();
+      });
+    }
+
+    function setupSurfaceSampler(model) {
+      const mesh = model.getObjectByProperty('type', 'Mesh'); // get first mesh
+      surfaceSampler = new MeshSurfaceSampler(mesh).build();
+
+      const tempPosition = new THREE.Vector3();
+      sampledPositions = [];
+
+      for (let i = 0; i < particleCount; i++) {
+        surfaceSampler.sample(tempPosition);
+        sampledPositions.push(tempPosition.clone());
+      }
+    }
+
+    function createParticles() {
+      particlePositions = new Float32Array(particleCount * 3);
+      for (let i = 0; i < particleCount; i++) {
+        particlePositions[i * 3 + 0] = (Math.random() - 0.5) * 5;
+        particlePositions[i * 3 + 1] = (Math.random() - 0.5) * 5;
+        particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 5;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+
+      const material = new THREE.PointsMaterial({
+        size: 0.03,
+        color: 0x00ffff,
+      });
+
+      particles = new THREE.Points(geometry, material);
+      scene.add(particles);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      controls.update();
+
+
+      const posAttr = particles.geometry.attributes.position;
+
+      for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        const currentPos = new THREE.Vector3(
+          posAttr.array[i3],
+          posAttr.array[i3 + 1],
+          posAttr.array[i3 + 2]
+        );
+        const targetPos = sampledPositions[i];
+
+        const dir = targetPos.clone().sub(currentPos);
+        currentPos.add(dir.multiplyScalar(0.02)); // movement speed
+
+        posAttr.array[i3] = currentPos.x;
+        posAttr.array[i3 + 1] = currentPos.y;
+        posAttr.array[i3 + 2] = currentPos.z;
+      }
+
+      posAttr.needsUpdate = true;
+
+      renderer.render(scene, camera);
+    }
+
+
+  </script>
+</body>
+
+</html>
